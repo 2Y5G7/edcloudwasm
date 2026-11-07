@@ -36,7 +36,7 @@ const urlParamCacheLimit = 20;//URL参数解析结果缓存条数
 // ---------------------------------------------------------------------------------
 //出站socket获取顺序，全局模式下按数组顺序，非全局为：直连>socks>http>https>sstp>turn>turns>nat64>proxyip
 const proxyStrategyOrder = ['socks', 'http', 'https', 'sstp', 'turn', 'turns', 'nat64'];
-const aiProxyip = 'kr.william.us.ci';//香港地区cf cdn ai分流第三方proxyip
+const aiProxyip = 'hkgai.58807.de5.net';//香港地区cf cdn ai分流第三方proxyip
 const dohEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'];
 const dohNatEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve'];
 const instance = new WebAssembly.Instance(wasmModule);
@@ -1256,7 +1256,7 @@ const txtdnsResult = async (txtdns) => {
     }
     return prefixes.length ? prefixes : null;
 };
-const proxyIpRegex = /william|fxpip|hhtxt/;
+const proxyIpRegex = /william|fxpip/;
 const connectProxyIp = async (param, limit, txt) => {
     if (param === undefined) param = await getCurrentColo() || proxyHost;
     if (txt || proxyIpRegex.test(param)) {
@@ -1299,7 +1299,7 @@ const getUrlParam = (offset, len) => {
     const sub = wasmMem.subarray(dataPtr + offset, dataPtr + offset + len);
     return len <= 64 ? String.fromCharCode.apply(null, sub) : textDecoder.decode(sub);
 };
-const urlListCacheDict = new Map(), urlListCacheKeys = new Array(urlParamCacheLimit);
+const urlListCacheDict = new Map(), urlListCacheKeys = new Array(urlParamCacheLimit), directFailTable = new Set();
 let urlListCacheIndex = 0;
 const portMap = {1: 1080, 2: 80, 5: 3478, 6: 443, 7: 5349};
 const establishTcpConnection = async (parsedRequest, request) => {
@@ -1382,13 +1382,16 @@ const establishTcpConnection = async (parsedRequest, request) => {
             if (colo === 'HKG') list = aiList;
         }
     }
-    for (let i = 0; i < list.length; i++) {
+    const skipDirect = list.length > 1 && (parsedRequest.isAiDomain || directFailTable.has(parsedRequest.host));
+    for (const {type, concurrent, param, txt} of list) {
+        if (type === 0 && skipDirect) continue;
         try {
-            const exec = strategyExecutorMap.get(list[i].type);
-            const sub = (list[i].concurrent && Array.isArray(list[i].param)) ? Math.max(1, Math.floor(concurrency / list[i].param.length)) : undefined;
-            const socket = await (list[i].concurrent && Array.isArray(list[i].param) ? concurrentStrategyExec(parsedRequest, list[i].param, exec, sub, list[i].txt) : exec(parsedRequest, list[i].param, undefined, list[i].txt));
+            const exec = strategyExecutorMap.get(type);
+            const sub = (concurrent && Array.isArray(param)) ? Math.max(1, Math.floor(concurrency / (param.length || 1))) : undefined;
+            const socket = await (sub ? concurrentStrategyExec(parsedRequest, param, exec, sub, txt) : exec(parsedRequest, param, undefined, txt));
             if (socket) return {socket, speed};
         } catch {}
+        if (type === 0) (directFailTable.add(parsedRequest.host), directFailTable.size > 200 && directFailTable.delete(directFailTable.values().next().value));
     }
     return null;
 };

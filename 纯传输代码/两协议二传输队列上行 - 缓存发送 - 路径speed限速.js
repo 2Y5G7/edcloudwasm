@@ -12,7 +12,7 @@ const flushTime = 3;
 const concurrency = 4;
 const urlParamCacheLimit = 20;
 const proxyStrategyOrder = ['socks', 'http', 'https'];
-const aiProxyip = 'kr.william.us.ci';
+const aiProxyip = 'hkgai.58807.de5.net';
 const dohEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/dns-query'];
 const dohNatEndpoints = ['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve'];
 const getProxyHost = () => {
@@ -261,7 +261,7 @@ const txtdnsResult = async (txtdns) => {
     }
     return prefixes.length ? prefixes : null;
 };
-const proxyIpRegex = /william|fxpip|hhtxt/;
+const proxyIpRegex = /william|fxpip/;
 const connectProxyIp = async (param, limit, txt) => {
     if (param === undefined) param = await getCurrentColo() || proxyHost;
     if (txt || proxyIpRegex.test(param)) {
@@ -322,7 +322,7 @@ const concurrentStrategyExec = (parsedRequest, params, exec, limit, txt) => {
     return raceAny(attempts);
 };
 const paramRegex = /(speed|gs5|s5all|ghttp|httpall|ghttps|httpsall|s5|socks|http|https|txtip|ip)(?:=|:\/\/|%3A%2F%2F)([^&]+)|(proxyall|globalproxy|global)/gi;
-const urlListCacheDict = new Map(), urlListCacheKeys = new Array(urlParamCacheLimit);
+const urlListCacheDict = new Map(), urlListCacheKeys = new Array(urlParamCacheLimit), directFailTable = new Set();
 let urlListCacheIndex = 0;
 const establishTcpConnection = async (parsedRequest, request) => {
     let u = request.url, clean = u.slice(u.indexOf('/', 10) + 1), l = clean.length, list = [], speed;
@@ -398,14 +398,16 @@ const establishTcpConnection = async (parsedRequest, request) => {
             list = isHkgAi ? aiList : normalList;
         }
     }
-    for (let i = 0; i < list.length; i++) {
+    const skipDirect = list.length > 1 && (parsedRequest.isAiDomain || directFailTable.has(parsedRequest.host));
+    for (const {type, concurrent, param, txt} of list) {
+        if (type === 0 && skipDirect) continue;
         try {
-            const exec = strategyExecutorMap.get(list[i].type);
-            const sub = (list[i]['concurrent'] && Array.isArray(list[i].param)) ? Math.max(1, Math.floor(concurrency / list[i].param.length)) : undefined;
-            // @ts-ignore
-            const socket = await (list[i]['concurrent'] && Array.isArray(list[i].param) ? concurrentStrategyExec(parsedRequest, list[i].param, exec, sub, list[i].txt) : exec(parsedRequest, list[i].param, undefined, list[i].txt));
+            const exec = strategyExecutorMap.get(type);
+            const sub = (concurrent && Array.isArray(param)) ? Math.max(1, Math.floor(concurrency / (param.length || 1))) : undefined;
+            const socket = await (sub ? concurrentStrategyExec(parsedRequest, param, exec, sub, txt) : exec(parsedRequest, param, undefined, txt));
             if (socket) return {socket, speed};
         } catch {}
+        if (type === 0) (directFailTable.add(parsedRequest.host), directFailTable.size > 200 && directFailTable.delete(directFailTable.values().next().value));
     }
     return null;
 };
